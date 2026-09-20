@@ -58,7 +58,7 @@ export default function Home() {
     <main style={{ maxWidth: 640, margin: "4rem auto", fontFamily: "system-ui, sans-serif", padding: "0 1rem" }}>
       <h1>Research-to-Deck Generator</h1>
       <p style={{ color: "#555" }}>
-        Enter a research topic. We&apos;ll pull papers from Semantic Scholar, synthesize the
+        Enter a research topic. We&apos;ll pull papers from OpenAlex, synthesize the
         highest-signal findings, and generate a cited, branded slide deck.
       </p>
 

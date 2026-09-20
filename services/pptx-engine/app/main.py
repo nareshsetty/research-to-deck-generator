@@ -41,7 +41,7 @@ def generate(request: GenerateRequest) -> GenerateResponse:
         if ingested == 0 and not topic_already_ingested(topic):
             raise HTTPException(
                 status_code=422,
-                detail="No papers with usable text were found for this topic on Semantic Scholar.",
+                detail="No papers with usable text were found for this topic on OpenAlex.",
             )
 
     findings = retrieve_findings(topic)

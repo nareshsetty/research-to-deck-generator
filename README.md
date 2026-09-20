@@ -1,6 +1,6 @@
 # Research-to-Deck Generator
 
-RAG over 50+ papers via the Semantic Scholar API → synthesize findings with Claude → auto-generate a branded, cited PPTX deck with speaker notes. Exposed as a Next.js API, backed by a BullMQ job queue and a Python FastAPI pipeline service.
+RAG over 50+ papers via the OpenAlex API → synthesize findings with Claude → auto-generate a branded, cited PPTX deck with speaker notes. Exposed as a Next.js API, backed by a BullMQ job queue and a Python FastAPI pipeline service.
 
 ## Architecture
 
@@ -10,7 +10,7 @@ apps/worker     Node BullMQ worker — picks up jobs, calls the Python pipeline 
 services/pptx-engine   Python FastAPI service — ingestion, RAG, synthesis, PPTX assembly
 ```
 
-- **Ingestion**: Semantic Scholar API → fetch paper abstracts (+ open-access PDF text when available) → chunk → embed (sentence-transformers, local, no extra API key) → store in Postgres/pgvector.
+- **Ingestion**: OpenAlex API → fetch paper abstracts (+ open-access PDF text when available) → chunk → embed (sentence-transformers, local, no extra API key) → store in Postgres/pgvector.
 - **RAG**: 4 query variants per topic, similarity search per variant, merge + dedupe, then cross-encoder re-ranking to surface the highest-signal chunks.
 - **Synthesis**: Claude (`claude-sonnet-5`) turns the top findings into a structured slide plan (titles, bullets, speaker notes, per-slide citations), grounded only in the retrieved excerpts.
 - **Deck assembly**: python-pptx builds a branded deck — title slide, one slide per topic with footer citation markers and speaker notes, and a numbered References slide.
@@ -24,7 +24,7 @@ Why a separate Python service instead of running python-pptx inside the Next.js 
 - Python 3.11 (3.14 currently lacks prebuilt wheels for `torch`/`sentence-transformers` — this repo's Python service was built and tested against 3.11)
 - Docker (for local Postgres+pgvector and Redis) — or your own Postgres 16 with the `vector` extension and a Redis instance
 - An Anthropic API key
-- Optionally, a Semantic Scholar API key (the public API works without one at a lower rate limit)
+- No API key needed for OpenAlex (it's fully open); optionally set your email as `OPENALEX_MAILTO` to join OpenAlex's "polite pool" for faster, more reliable rate limits
 
 ## Local setup
 
@@ -43,7 +43,7 @@ cd services/pptx-engine
 uv venv --python 3.11 .venv
 uv pip install -p .venv -r requirements.txt
 cp .env.example .env
-# edit .env and set ANTHROPIC_API_KEY (and SEMANTIC_SCHOLAR_API_KEY if you have one)
+# edit .env and set ANTHROPIC_API_KEY (and OPENALEX_MAILTO if you want the polite pool)
 .venv/Scripts/activate   # or: source .venv/bin/activate on macOS/Linux
 uvicorn app.main:app --reload --port 8000
 ```
@@ -100,7 +100,7 @@ curl http://localhost:3000/api/status/1
 | Variable | Used by | Purpose |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | pptx-engine | Claude synthesis calls |
-| `SEMANTIC_SCHOLAR_API_KEY` | pptx-engine | Optional, raises Semantic Scholar rate limit |
+| `OPENALEX_MAILTO` | pptx-engine | Optional, joins OpenAlex's "polite pool" for faster rate limits |
 | `DATABASE_URL` | pptx-engine | Postgres/pgvector connection |
 | `REDIS_URL` | web, worker | BullMQ queue connection |
 | `PYTHON_SERVICE_URL` | worker | Internal URL to call the pipeline service |

@@ -10,25 +10,37 @@ from .embeddings import embed_texts
 
 logger = logging.getLogger(__name__)
 
-SEMANTIC_SCHOLAR_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
-PAPER_FIELDS = "title,abstract,authors,year,url,openAccessPdf,externalIds"
+OPENALEX_WORKS_URL = "https://api.openalex.org/works"
+SELECT_FIELDS = "id,title,abstract_inverted_index,authorships,publication_year,doi,best_oa_location"
 CHUNK_WORDS = 200
 CHUNK_OVERLAP_WORDS = 50
 
 
-def search_papers(topic: str, limit: int) -> list[dict]:
-    headers = {}
-    if settings.semantic_scholar_api_key:
-        headers["x-api-key"] = settings.semantic_scholar_api_key
+def reconstruct_abstract(inverted_index: dict[str, list[int]] | None) -> str:
+    """OpenAlex returns abstracts as an inverted index ({word: [positions]}) to
+    respect publisher copyright on full-text redistribution. Rebuild plain text from it."""
+    if not inverted_index:
+        return ""
+    positions: list[tuple[int, str]] = []
+    for word, indices in inverted_index.items():
+        for index in indices:
+            positions.append((index, word))
+    positions.sort(key=lambda item: item[0])
+    return " ".join(word for _, word in positions)
 
-    response = requests.get(
-        SEMANTIC_SCHOLAR_SEARCH_URL,
-        params={"query": topic, "limit": min(limit, 100), "fields": PAPER_FIELDS},
-        headers=headers,
-        timeout=30,
-    )
+
+def search_papers(topic: str, limit: int) -> list[dict]:
+    params = {
+        "search": topic,
+        "per_page": min(limit, 200),
+        "select": SELECT_FIELDS,
+    }
+    if settings.openalex_mailto:
+        params["mailto"] = settings.openalex_mailto
+
+    response = requests.get(OPENALEX_WORKS_URL, params=params, timeout=30)
     response.raise_for_status()
-    return response.json().get("data", [])
+    return response.json().get("results", [])
 
 
 def fetch_pdf_text(pdf_url: str) -> str | None:
@@ -61,7 +73,7 @@ def chunk_text(text: str) -> list[str]:
 
 
 def ingest_topic(topic: str, limit: int | None = None) -> int:
-    """Fetch papers for a topic from Semantic Scholar, chunk + embed their text,
+    """Fetch papers for a topic from OpenAlex, chunk + embed their text,
     and upsert them into Postgres/pgvector. Returns the number of papers ingested."""
     limit = limit or settings.max_papers_per_topic
     papers = search_papers(topic, limit)
@@ -71,18 +83,22 @@ def ingest_topic(topic: str, limit: int | None = None) -> int:
     try:
         with conn.cursor() as cur:
             for paper in papers:
-                paper_id = paper.get("paperId")
+                paper_id = paper.get("id")
                 title = paper.get("title")
                 if not paper_id or not title:
                     continue
 
-                abstract = paper.get("abstract") or ""
-                authors = ", ".join(a.get("name", "") for a in paper.get("authors") or [])
-                year = paper.get("year")
-                url = paper.get("url")
+                abstract = reconstruct_abstract(paper.get("abstract_inverted_index"))
+                authors = ", ".join(
+                    authorship["author"]["display_name"]
+                    for authorship in paper.get("authorships") or []
+                    if authorship.get("author", {}).get("display_name")
+                )
+                year = paper.get("publication_year")
+                url = paper.get("doi") or paper_id
 
-                pdf_info = paper.get("openAccessPdf") or {}
-                pdf_text = fetch_pdf_text(pdf_info["url"]) if pdf_info.get("url") else None
+                pdf_url = (paper.get("best_oa_location") or {}).get("pdf_url")
+                pdf_text = fetch_pdf_text(pdf_url) if pdf_url else None
                 full_text = pdf_text or abstract
                 if not full_text:
                     continue

@@ -7,7 +7,7 @@ load_dotenv()
 
 class Settings:
     anthropic_api_key: str = os.environ.get("ANTHROPIC_API_KEY", "")
-    semantic_scholar_api_key: str = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "")
+    openalex_mailto: str = os.environ.get("OPENALEX_MAILTO", "")
     database_url: str = os.environ.get(
         "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/research_deck"
     )
