@@ -12,7 +12,7 @@ services/pptx-engine   Python FastAPI service — ingestion, RAG, synthesis, PPT
 
 - **Ingestion**: OpenAlex API → fetch paper abstracts (+ open-access PDF text when available) → chunk → embed (sentence-transformers, local, no extra API key) → store in Postgres/pgvector.
 - **RAG**: 4 query variants per topic, similarity search per variant, merge + dedupe, then cross-encoder re-ranking to surface the highest-signal chunks.
-- **Synthesis**: Claude (`claude-sonnet-5`) turns the top findings into a structured slide plan (titles, bullets, speaker notes, per-slide citations), grounded only in the retrieved excerpts.
+- **Synthesis**: Groq (`openai/gpt-oss-120b`, via Groq's OpenAI-compatible API) turns the top findings into a structured slide plan (titles, bullets, speaker notes, per-slide citations), grounded only in the retrieved excerpts.
 - **Deck assembly**: python-pptx builds a branded deck — title slide, one slide per topic with footer citation markers and speaker notes, and a numbered References slide.
 - **API**: `POST /api/generate { topic }` → BullMQ job → `GET /api/status/:jobId` → `{ status, downloadUrl }` once complete.
 
@@ -23,7 +23,7 @@ Why a separate Python service instead of running python-pptx inside the Next.js 
 - Node.js 20+
 - Python 3.11 (3.14 currently lacks prebuilt wheels for `torch`/`sentence-transformers` — this repo's Python service was built and tested against 3.11)
 - Docker (for local Postgres+pgvector and Redis) — or your own Postgres 16 with the `vector` extension and a Redis instance
-- An Anthropic API key
+- A Groq API key
 - No API key needed for OpenAlex (it's fully open); optionally set your email as `OPENALEX_MAILTO` to join OpenAlex's "polite pool" for faster, more reliable rate limits
 
 ## Local setup
@@ -43,7 +43,7 @@ cd services/pptx-engine
 uv venv --python 3.11 .venv
 uv pip install -p .venv -r requirements.txt
 cp .env.example .env
-# edit .env and set ANTHROPIC_API_KEY (and OPENALEX_MAILTO if you want the polite pool)
+# edit .env and set GROQ_API_KEY (and OPENALEX_MAILTO if you want the polite pool)
 .venv/Scripts/activate   # or: source .venv/bin/activate on macOS/Linux
 uvicorn app.main:app --reload --port 8000
 ```
@@ -54,7 +54,7 @@ Verify each pipeline stage independently:
 python scripts/test_deck.py                                    # no DB/network/API key needed
 python scripts/test_ingestion.py "retrieval augmented generation"
 python scripts/test_retrieval.py "retrieval augmented generation"
-python scripts/test_synthesis.py "retrieval augmented generation"  # needs ANTHROPIC_API_KEY
+python scripts/test_synthesis.py "retrieval augmented generation"  # needs GROQ_API_KEY
 ```
 
 ### 3. Worker (`apps/worker`)
@@ -91,15 +91,17 @@ curl http://localhost:3000/api/status/1
 
 ## Deployment notes
 
-- **`apps/web`** deploys to Vercel as-is (Next.js). Set `REDIS_URL` to a managed Redis instance (e.g. Upstash) in the Vercel project's environment variables.
-- **`apps/worker`** and **`services/pptx-engine`** are long-running processes (the worker holds an open BullMQ connection; the Python service keeps embedding/re-ranking models loaded in memory) and are not a fit for Vercel's serverless functions. Deploy them to a persistent host (Render, Fly.io, Railway, or a small VM) pointed at the same Redis and Postgres instances as the web app.
-- No infrastructure has been provisioned or deployed as part of this build — connect real Postgres/Redis/Vercel projects and run the deploy yourself when ready.
+- **`apps/web`** deploys to Vercel as-is (Next.js). `REDIS_URL` (Upstash for Redis) and `DATABASE_URL` (Neon Postgres with `pgvector`, provisioned via Vercel's Storage tab) are attached to the `web` Vercel project as managed integrations and pulled into `apps/web/.env.local` via `vercel env pull`.
+- **`apps/worker`** and **`services/pptx-engine`** are long-running processes (the worker holds an open BullMQ connection; the Python service keeps embedding/re-ranking models loaded in memory) and are not a fit for Vercel's serverless functions. Deploy them to a persistent host (Render, Fly.io, Railway, or a small VM), and set the same `DATABASE_URL` / `REDIS_URL` values from the Vercel project on that host's environment variables.
+- Postgres: provisioned as a Neon database through Vercel's marketplace integration (Storage → Postgres). Neon supports the `pgvector` extension directly — `services/pptx-engine/app/db.py`'s `init_db()` runs `CREATE EXTENSION IF NOT EXISTS vector` plus the `papers`/`chunks` schema against it on startup, no separate migration step needed. Use the pooled `DATABASE_URL` (not `DATABASE_URL_UNPOOLED`) for the app; both are available from the Vercel dashboard or `vercel env pull`.
+- Redis/worker deployment still need to be pointed at production-grade infra when going live; Postgres is already provisioned as described above.
 
 ## Environment variables
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | pptx-engine | Claude synthesis calls |
+| `GROQ_API_KEY` | pptx-engine | Groq synthesis calls |
+| `GROQ_MODEL` | pptx-engine | Optional, defaults to `openai/gpt-oss-120b` |
 | `OPENALEX_MAILTO` | pptx-engine | Optional, joins OpenAlex's "polite pool" for faster rate limits |
 | `DATABASE_URL` | pptx-engine | Postgres/pgvector connection |
 | `REDIS_URL` | web, worker | BullMQ queue connection |

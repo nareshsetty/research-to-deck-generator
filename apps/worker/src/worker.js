@@ -19,6 +19,9 @@ async function processJob(job) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ topic }),
+    // Ingesting ~50 papers + embedding + rerank + synthesis on CPU can run well past
+    // undici's default 5-minute fetch timeout, which surfaces as an opaque "fetch failed".
+    signal: AbortSignal.timeout(20 * 60 * 1000),
   });
 
   if (!response.ok) {

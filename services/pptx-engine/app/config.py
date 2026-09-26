@@ -6,12 +6,12 @@ load_dotenv()
 
 
 class Settings:
-    anthropic_api_key: str = os.environ.get("ANTHROPIC_API_KEY", "")
+    groq_api_key: str = os.environ.get("GROQ_API_KEY", "")
     openalex_mailto: str = os.environ.get("OPENALEX_MAILTO", "")
     database_url: str = os.environ.get(
         "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/research_deck"
     )
-    claude_model: str = os.environ.get("CLAUDE_MODEL", "claude-sonnet-5")
+    groq_model: str = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
     embedding_model: str = os.environ.get("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
     reranker_model: str = os.environ.get("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
     embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "384"))

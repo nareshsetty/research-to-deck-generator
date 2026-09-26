@@ -1,6 +1,6 @@
 import json
 
-import anthropic
+import openai
 
 from .config import settings
 from .models import Finding, Slide, SlidePlan
@@ -47,23 +47,24 @@ def _format_excerpts(findings: list[Finding]) -> str:
 
 
 def synthesize_slide_plan(topic: str, findings: list[Finding]) -> SlidePlan:
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    client = openai.OpenAI(api_key=settings.groq_api_key, base_url="https://api.groq.com/openai/v1")
 
-    message = client.messages.create(
-        model=settings.claude_model,
+    completion = client.chat.completions.create(
+        model=settings.groq_model,
         max_tokens=4096,
-        system=SYSTEM_PROMPT,
+        response_format={"type": "json_object"},
         messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
             {
                 "role": "user",
                 "content": USER_PROMPT_TEMPLATE.format(
                     topic=topic, excerpts=_format_excerpts(findings)
                 ),
-            }
+            },
         ],
     )
 
-    raw_text = "".join(block.text for block in message.content if block.type == "text").strip()
+    raw_text = completion.choices[0].message.content.strip()
     if raw_text.startswith("```"):
         raw_text = raw_text.strip("`")
         raw_text = raw_text.split("\n", 1)[1] if "\n" in raw_text else raw_text
